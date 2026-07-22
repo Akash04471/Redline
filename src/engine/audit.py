@@ -5,8 +5,10 @@ import uuid
 from datetime import datetime, timezone
 from pydantic import BaseModel
 from typing import Optional
+import threading
 
 DB_PATH = "audit.db"
+_db_lock = threading.Lock()
 
 class AuditEntry(BaseModel):
     entry_id: str
@@ -39,38 +41,39 @@ def _hash_payload(payload: dict) -> str:
     return hashlib.sha256(canonical_json.encode('utf-8')).hexdigest()
 
 def append_entry(entry_type: str, payload: dict, db_path: str = DB_PATH) -> AuditEntry:
-    init_db(db_path)
-    
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    # Get last prev_hash
-    cursor.execute("SELECT payload_hash FROM entries ORDER BY seq_id DESC LIMIT 1")
-    row = cursor.fetchone()
-    prev_hash = row[0] if row else "GENESIS"
-    
-    entry_id = str(uuid.uuid4())
-    timestamp = datetime.now(timezone.utc).isoformat()
-    payload_hash = _hash_payload(payload)
-    
-    cursor.execute('''
-        INSERT INTO entries (entry_id, timestamp, entry_type, payload, payload_hash, prev_hash)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (entry_id, timestamp, entry_type, json.dumps(payload), payload_hash, prev_hash))
-    
-    seq_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    
-    return AuditEntry(
-        entry_id=entry_id,
-        timestamp=timestamp,
-        entry_type=entry_type,
-        payload=payload,
-        payload_hash=payload_hash,
-        prev_hash=prev_hash,
-        seq_id=seq_id
-    )
+    with _db_lock:
+        init_db(db_path)
+        
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Get last prev_hash
+        cursor.execute("SELECT payload_hash FROM entries ORDER BY seq_id DESC LIMIT 1")
+        row = cursor.fetchone()
+        prev_hash = row[0] if row else "GENESIS"
+        
+        entry_id = str(uuid.uuid4())
+        timestamp = datetime.now(timezone.utc).isoformat()
+        payload_hash = _hash_payload(payload)
+        
+        cursor.execute('''
+            INSERT INTO entries (entry_id, timestamp, entry_type, payload, payload_hash, prev_hash)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (entry_id, timestamp, entry_type, json.dumps(payload), payload_hash, prev_hash))
+        
+        seq_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        return AuditEntry(
+            entry_id=entry_id,
+            timestamp=timestamp,
+            entry_type=entry_type,
+            payload=payload,
+            payload_hash=payload_hash,
+            prev_hash=prev_hash,
+            seq_id=seq_id
+        )
 
 def verify_chain(db_path: str = DB_PATH) -> tuple[bool, Optional[str]]:
     try:

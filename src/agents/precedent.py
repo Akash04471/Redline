@@ -76,7 +76,7 @@ def precedent_agent(clause_text: str, clause_category: str, clause_id: str = "un
             try:
                 genai_client = genai.Client()
                 response = genai_client.models.generate_content(
-                    model="gemini-2.5-pro",
+                    model="gemini-2.5-flash",
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         system_instruction=instruction,

@@ -75,7 +75,7 @@ def regulatory_agent(clause_text: str, jurisdiction: str, contract_type: str, cl
                 # Initialize GenAI client. It will use GOOGLE_API_KEY from environment or ADC.
                 client = genai.Client()
                 response = client.models.generate_content(
-                    model="gemini-2.5-pro",
+                    model="gemini-2.5-flash",
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         system_instruction=instruction,
