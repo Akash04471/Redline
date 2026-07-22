@@ -1,7 +1,6 @@
 import asyncio
 from pydantic import BaseModel
 from typing import Any, Dict
-from lyzr_automata import Task, LinearSyncPipeline
 
 from src.agents.regulatory import regulatory_agent
 from src.agents.commercial import commercial_risk_agent
@@ -15,14 +14,12 @@ class WorkflowResult(BaseModel):
     consensus_decision: Dict[str, Any]
     branch_outcome: Dict[str, Any]
 
-class ParallelExecutionTask(Task):
+class ParallelExecutionTask:
     """
-    Custom Lyzr Task that overrides the execute method to run the three specialist
-    agents in parallel using asyncio, wrapping the IO-bound LLM calls to ensure concurrency 
-    while keeping Lyzr as the orchestration layer of record.
+    Custom execution class that runs the three specialist
+    agents in parallel using asyncio.
     """
     def __init__(self, clause_data: dict):
-        super().__init__(name="parallel_agent_execution", model=None) # type: ignore
         self.clause_data = clause_data
         
     async def _run_agents(self):
@@ -55,9 +52,8 @@ class ParallelExecutionTask(Task):
     def execute(self, *args, **kwargs) -> dict:
         return asyncio.run(self._run_agents())
 
-class ConsensusTask(Task):
+class ConsensusTask:
     def __init__(self, clause_id: str):
-        super().__init__(name="consensus_evaluation", model=None) # type: ignore
         self.clause_id = clause_id
         
     def execute(self, input_data: dict, *args, **kwargs) -> dict:
@@ -74,9 +70,8 @@ class ConsensusTask(Task):
 from src.agents.recommendation import recommendation_agent
 from src.agents.human_review import human_review_agent
 
-class BranchingTask(Task):
+class BranchingTask:
     def __init__(self, clause_data: dict, raw_outputs: dict):
-        super().__init__(name="workflow_branching", model=None) # type: ignore
         self.clause_data = clause_data
         self.raw_outputs = raw_outputs
         
@@ -103,16 +98,13 @@ class BranchingTask(Task):
 
 def run_workflow(clause_data: dict) -> WorkflowResult:
     """
-    Executes the full pipeline using Lyzr Automata primitives.
+    Executes the full pipeline.
     """
     clause_id = clause_data["clause_id"]
     
     # Instantiate tasks
     t1 = ParallelExecutionTask(clause_data)
     t2 = ConsensusTask(clause_id)
-    # We will execute the tasks sequentially via standard python calls for data passing,
-    # as Lyzr Pipeline usually handles string prompt passing via LLMs rather than dict pipelines natively,
-    # but we are using Task primitives as requested to organize the nodes.
     
     raw_outputs = t1.execute()
     
