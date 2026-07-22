@@ -19,12 +19,11 @@ st.markdown('''
 
 html, body, [class*="css"] {
     font-family: 'IBM Plex Sans', sans-serif;
-    background-color: #f9f8f6;
 }
 
 h1, h2, h3, h4, h5, h6 {
     font-family: 'Lora', serif !important;
-    color: #1a202c !important;
+    color: #ffffff !important;
 }
 
 /* Agent Nameplate */
@@ -34,8 +33,8 @@ h1, h2, h3, h4, h5, h6 {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 1px;
-    color: #1a202c;
-    border-bottom: 2px solid #1a202c;
+    color: #ffffff;
+    border-bottom: 2px solid #ffffff;
     padding-bottom: 5px;
     margin-bottom: 10px;
 }
@@ -64,10 +63,10 @@ h1, h2, h3, h4, h5, h6 {
 /* Audit Ledger */
 .audit-chain-link {
     font-family: monospace;
-    color: #1a202c;
-    background: #ece9e1;
+    color: #ffffff;
+    background: #2d3748;
     padding: 4px 8px;
-    border-left: 4px solid #1a202c;
+    border-left: 4px solid #ffffff;
     margin: 5px 0 15px 15px;
     position: relative;
     font-size: 0.85rem;
@@ -164,9 +163,9 @@ if "batch_result" not in st.session_state:
 # --- Main App ---
 
 st.markdown('''
-<div style="text-align: center; border-bottom: 2px solid #1a202c; padding-bottom: 20px; margin-bottom: 20px;">
+<div style="text-align: center; border-bottom: 2px solid #ffffff; padding-bottom: 20px; margin-bottom: 20px;">
     <h1 style="font-size: 2.5rem; margin-bottom: 5px;">⚖️ Redline Consensus Engine</h1>
-    <p style="font-style: italic; color: #1a202c; font-family: 'Lora', serif; font-size: 1.2rem;">3 independent AI reviewers, reconciled by rule-based consensus, logged to a tamper-evident ledger.</p>
+    <p style="font-style: italic; color: #ffffff; font-family: 'Lora', serif; font-size: 1.2rem;">3 independent AI reviewers, reconciled by rule-based consensus, logged to a tamper-evident ledger.</p>
 </div>
 ''', unsafe_allow_html=True)
 
@@ -175,7 +174,7 @@ st.markdown('''
 with st.sidebar:
     st.header("Role Simulation")
     active_role = st.selectbox("View as role", ["Legal Counsel", "Compliance Officer", "Legal Ops Admin", "Auditor"])
-    st.markdown(f'<div style="background-color: #1a202c; color: #fff; padding: 5px 10px; text-transform: uppercase; font-size: 0.8rem; font-weight: bold; text-align: center; letter-spacing: 1px; margin-top: 10px;">CREDENTIAL ID: {active_role}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="background-color: #333333; color: #fff; padding: 5px 10px; text-transform: uppercase; font-size: 0.8rem; font-weight: bold; text-align: center; letter-spacing: 1px; margin-top: 10px;">CREDENTIAL ID: {active_role}</div>', unsafe_allow_html=True)
 
 tab_names = []
 if active_role == "Legal Counsel":
