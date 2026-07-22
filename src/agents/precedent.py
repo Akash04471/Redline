@@ -1,13 +1,15 @@
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 import json
 import time
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from src.db.client import get_qdrant_client
 from src.db.embeddings import get_embedding
-from src.config import COLLECTION_HISTORICAL, COLLECTION_REVIEW, FAULT_INJECTION
-from google import genai
-from google.genai import types
+from src.config import COLLECTION_HISTORICAL, FAULT_INJECTION
 from src.engine.audit import append_entry
+
+from google.adk.agents import LlmAgent
+from google.adk.runners import Runner
+from google.adk.sessions.in_memory_session_service import InMemorySessionService
 
 class PrecedentOutput(BaseModel):
     similarity_score: float
@@ -16,10 +18,37 @@ class PrecedentOutput(BaseModel):
     confidence: float
     reasoning: str
 
+def retrieve_historical_precedents(clause_category: str, query: str) -> str:
+    """
+    Retrieve historical precedents for a specific clause category.
+    
+    Args:
+        clause_category: The category of the clause (e.g., "Indemnification", "Termination").
+        query: The specific clause or concept to search for.
+    """
+    client = get_qdrant_client()
+    query_vector = get_embedding(query)
+    
+    category_filter = Filter(
+        must=[
+            FieldCondition(key="clause_category", match=MatchValue(value=clause_category))
+        ]
+    )
+    
+    search_result = client.query_points(
+        collection_name=COLLECTION_HISTORICAL,
+        query=query_vector,
+        query_filter=category_filter,
+        limit=2
+    ).points
+    
+    citations = [f"Accepted Precedent [{res.payload.get('status')}]: {res.payload.get('clause_text', '')}" for res in search_result]
+    return "\\n".join(citations)
+
 def precedent_agent(clause_text: str, clause_category: str, clause_id: str = "unknown") -> dict:
     """
-    Agent for Precedent.
-    Role: Senior Paralegal / Knowledge Manager
+    Agent for Precedent comparison.
+    Role: Senior Legal Analyst
     """
     try:
         # FAULT INJECTION GATEWAY
@@ -32,58 +61,39 @@ def precedent_agent(clause_text: str, clause_category: str, clause_id: str = "un
         elif fault_mode == "malformed":
             raise ValueError("Simulated malformed JSON output.")
 
-        client = get_qdrant_client()
-        query_vector = get_embedding(clause_text)
+        # 1. Define Agent using ADK
+        agent = LlmAgent(
+            name="precedent_agent",
+            model="gemini-2.5-flash",
+            instruction=(
+                "You are a Senior Legal Analyst. Compare the provided clause against historical precedents. "
+                "Determine if it is standard or deviates materially. "
+                "You must output strictly as JSON matching the PrecedentOutput schema."
+            ),
+            tools=[retrieve_historical_precedents],
+            output_schema=PrecedentOutput.model_json_schema()
+        )
         
-        historical_filter = Filter(must=[FieldCondition(key="clause_category", match=MatchValue(value=clause_category))])
-        
-        hist_results = client.query_points(
-            collection_name=COLLECTION_HISTORICAL,
-            query=query_vector,
-            query_filter=historical_filter,
-            limit=5
-        ).points
-        
-        review_results = client.query_points(
-            collection_name=COLLECTION_REVIEW,
-            query=query_vector,
-            # If review_feedback has no clause_category, we might skip the filter or use a generic one.
-            # Assuming review_feedback might not have clause_category (as per setup_db.py schema)
-            # We'll just search it without filter for top matches.
-            limit=5
-        ).points
-        
-        # Combine and sort by score
-        combined_results = hist_results + review_results
-        combined_results.sort(key=lambda x: x.score, reverse=True)
-        top_5 = combined_results[:5]
-        
-        citations = []
-        for res in top_5:
-            # Check if it's historical or review
-            if "outcome" in res.payload:
-                citations.append(f"Historical Clause ({res.payload.get('outcome')}): {res.payload.get('clause_text')}")
-            else:
-                citations.append(f"Review Feedback ({res.payload.get('decision')} - {res.payload.get('rationale')}): {res.payload.get('clause_text')}")
-                
-        combined_context = "\n".join(citations)
-
-        instruction = "You are a Senior Paralegal / Knowledge Manager evaluating precedents."
-        prompt = f"Context (Precedents):\n{combined_context}\n\nClause:\n{clause_text}\n\nClause Category: {clause_category}\n\nOutput strictly as JSON."
+        # 2. Setup Session and Runner
+        session_service = InMemorySessionService()
+        runner = Runner(agent=agent, session_service=session_service, app_name="redline_engine")
         
         last_error = None
         for attempt in range(2):
             try:
-                genai_client = genai.Client()
-                response = genai_client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=instruction,
-                        response_mime_type="application/json",
-                        response_schema=PrecedentOutput,
-                        temperature=0.1
-                    )
+                # 3. Execute ADK Call
+                prompt = (
+                    f"Clause to analyze:\\n{clause_text}\\n\\n"
+                    f"Clause Category: {clause_category}\\n\\n"
+                    "Please use your tools to retrieve the historical precedents for this clause category, "
+                    "then compare the clause and output a JSON object."
+                )
+                
+                sess_id = session_service.create_session("system").id
+                response = runner.run(
+                    user_id="system",
+                    session_id=sess_id,
+                    new_message=prompt
                 )
                 
                 output_text = response.text
@@ -105,10 +115,8 @@ def precedent_agent(clause_text: str, clause_category: str, clause_id: str = "un
                 
                 return output_dict
                 
-            except ValidationError as e:
-                last_error = f"Validation Error: {e}"
             except Exception as e:
-                last_error = f"LLM Error: {e}"
+                last_error = f"ADK Error: {e}"
                 
         raise Exception(f"Failed after 2 attempts. Last error: {last_error}")
 

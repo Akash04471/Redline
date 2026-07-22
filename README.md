@@ -34,6 +34,8 @@ flowchart TD
     E -.-> F
 ```
 
+**Google ADK governs individual agent execution (LlmAgent + Runner per agent), Lyzr orchestrates parallel dispatch and branching across agents, Qdrant provides long-term semantic memory across 4 collections.**
+
 ## Quick Start
 
 Run these exact commands to spin up the system locally.

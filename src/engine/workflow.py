@@ -6,6 +6,7 @@ from lyzr_automata import Task, LinearSyncPipeline
 from src.agents.regulatory import regulatory_agent
 from src.agents.commercial import commercial_risk_agent
 from src.agents.precedent import precedent_agent
+from src.agents.data_privacy import data_privacy_agent
 from src.engine.consensus import evaluate_consensus
 from src.engine.audit import append_entry
 
@@ -31,12 +32,25 @@ class ParallelExecutionTask(Task):
         c_task = asyncio.to_thread(commercial_risk_agent, cd['clause_text'], cd['clause_type'], cd['industry'], cd['clause_id'])
         p_task = asyncio.to_thread(precedent_agent, cd['clause_text'], cd['clause_category'], cd['clause_id'])
         
-        reg_res, com_res, prec_res = await asyncio.gather(r_task, c_task, p_task)
-        return {
-            "regulatory": reg_res,
-            "commercial": com_res,
-            "precedent": prec_res
-        }
+        cat = cd.get('clause_category', '').lower()
+        needs_dpo = any(k in cat for k in ["data processing", "data transfer", "data deletion", "data protection", "confidentiality", "privacy"])
+        
+        if needs_dpo:
+            dp_task = asyncio.to_thread(data_privacy_agent, cd['clause_text'], cd['clause_id'])
+            reg_res, com_res, prec_res, dp_res = await asyncio.gather(r_task, c_task, p_task, dp_task)
+            return {
+                "regulatory": reg_res,
+                "commercial": com_res,
+                "precedent": prec_res,
+                "data_privacy": dp_res
+            }
+        else:
+            reg_res, com_res, prec_res = await asyncio.gather(r_task, c_task, p_task)
+            return {
+                "regulatory": reg_res,
+                "commercial": com_res,
+                "precedent": prec_res
+            }
         
     def execute(self, *args, **kwargs) -> dict:
         return asyncio.run(self._run_agents())
@@ -52,7 +66,8 @@ class ConsensusTask(Task):
             regulatory=input_data["regulatory"],
             commercial=input_data["commercial"],
             precedent=input_data["precedent"],
-            clause_id=self.clause_id
+            clause_id=self.clause_id,
+            data_privacy=input_data.get("data_privacy")
         )
         return decision.model_dump()
 
@@ -113,3 +128,47 @@ def run_workflow(clause_data: dict) -> WorkflowResult:
     )
     
     return result
+
+from src.parsing.extractor import ClauseCandidate
+
+def run_batch_workflow(clauses: list[ClauseCandidate], jurisdiction: str, contract_type: str, industry: str):
+    results = []
+    summary = {
+        "total_processed": 0,
+        "auto_recommended": 0,
+        "escalated": 0,
+        "tiers": {}
+    }
+    
+    import uuid
+    contract_id = str(uuid.uuid4())
+    
+    for clause in clauses:
+        clause_id = f"{contract_id}-clause-{clause.clause_index}"
+        
+        clause_data = {
+            "clause_id": clause_id,
+            "clause_text": clause.raw_text,
+            "jurisdiction": jurisdiction,
+            "contract_type": contract_type,
+            "clause_category": clause.clause_category,
+            "clause_type": clause.clause_category,
+            "industry": industry
+        }
+        
+        res = run_workflow(clause_data)
+        results.append({"clause": clause, "result": res})
+        
+        summary["total_processed"] += 1
+        
+        cons = res.consensus_decision.model_dump() if hasattr(res.consensus_decision, "model_dump") else res.consensus_decision
+        routing = cons.get("routing_decision")
+        
+        if routing == "auto_recommend":
+            summary["auto_recommended"] += 1
+        elif routing == "human_escalate":
+            summary["escalated"] += 1
+            tier = cons.get("escalation_tier", "unknown")
+            summary["tiers"][tier] = summary["tiers"].get(tier, 0) + 1
+            
+    return results, summary

@@ -79,3 +79,25 @@ def test_material_conflict_confidence_below_threshold_consensus():
     # Branch 4 (advisory): gap=0.04 (<=0.15), sev=0 (<=1). So it SHOULD be advisory.
     assert res.escalation_tier == "advisory"
     assert res.routing_decision == "human_escalate"
+
+def test_4_agent_consensus():
+    reg = {"risk_level": "Low", "confidence": 0.8, "hard_flag": False}
+    com = {"risk_level": "Low", "confidence": 0.85}
+    prec = {"risk_level": "Low", "confidence": 0.9}
+    dp = {"privacy_risk_level": "Low", "confidence": 0.88, "cross_border_transfer_flag": False}
+    
+    res = evaluate_consensus(reg, com, prec, data_privacy=dp)
+    assert res.consensus is True
+    assert res.escalation_tier == "none"
+    assert res.routing_decision == "auto_recommend"
+
+def test_4_agent_conflict():
+    reg = {"risk_level": "Low", "confidence": 0.8, "hard_flag": False}
+    com = {"risk_level": "Low", "confidence": 0.85}
+    prec = {"risk_level": "Low", "confidence": 0.9}
+    dp = {"privacy_risk_level": "High", "confidence": 0.95, "cross_border_transfer_flag": True}
+    
+    res = evaluate_consensus(reg, com, prec, data_privacy=dp)
+    assert res.consensus is False
+    assert res.escalation_tier == "material_conflict"
+    assert res.routing_decision == "human_escalate"

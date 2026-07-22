@@ -15,13 +15,17 @@ SEVERITY = {
     "critical": 3
 }
 
-def evaluate_consensus(regulatory: dict, commercial: dict, precedent: dict, clause_id: str = "unknown") -> ConsensusOutput:
+def evaluate_consensus(regulatory: dict, commercial: dict, precedent: dict, clause_id: str = "unknown", data_privacy: dict = None) -> ConsensusOutput:
     """
-    Evaluates the outputs from three specialist agents and determines the consensus and escalation routing.
+    Evaluates the outputs from specialist agents and determines the consensus and escalation routing.
     """
     result = None
     # 1. Agent Failure Check
-    if regulatory.get("agent_failed") or commercial.get("agent_failed") or precedent.get("agent_failed"):
+    agents_failed = regulatory.get("agent_failed") or commercial.get("agent_failed") or precedent.get("agent_failed")
+    if data_privacy and data_privacy.get("agent_failed"):
+        agents_failed = True
+        
+    if agents_failed:
         result = ConsensusOutput(
             consensus=False,
             escalation_tier="agent_failure",
@@ -56,6 +60,11 @@ def evaluate_consensus(regulatory: dict, commercial: dict, precedent: dict, clau
     
     sevs = [reg_sev, com_sev, prec_sev]
     
+    if data_privacy:
+        dp_risk = data_privacy.get("privacy_risk_level", "").lower()
+        dp_sev = SEVERITY.get(dp_risk, 99)
+        sevs.append(dp_sev)
+        
     # Extract Confidence Scores
     reg_conf = regulatory.get("confidence", 0.0)
     com_conf = commercial.get("confidence", 0.0)
@@ -63,9 +72,12 @@ def evaluate_consensus(regulatory: dict, commercial: dict, precedent: dict, clau
     
     confs = [reg_conf, com_conf, prec_conf]
     
+    if data_privacy:
+        confs.append(data_privacy.get("confidence", 0.0))
+    
     if result is None:
         # 3. Full Consensus Check
-        if reg_sev == com_sev == prec_sev and min(confs) >= 0.75:
+        if len(set(sevs)) == 1 and min(confs) >= 0.75:
             result = ConsensusOutput(
                 consensus=True,
                 escalation_tier="none",
@@ -93,20 +105,28 @@ def evaluate_consensus(regulatory: dict, commercial: dict, precedent: dict, clau
             
     if result is None:
         # 5. Material Conflict (everything else)
+        agents_str = f"Regulatory assessed {reg_risk} risk ({reg_conf*100:.0f}% conf), Commercial assessed {com_risk} risk ({com_conf*100:.0f}% conf), and Precedent assessed {prec_risk} risk ({prec_conf*100:.0f}% conf)."
+        if data_privacy:
+            agents_str += f" Data Privacy assessed {dp_risk} risk ({data_privacy.get('confidence', 0.0)*100:.0f}% conf)."
+            
         result = ConsensusOutput(
             consensus=False,
             escalation_tier="material_conflict",
             routing_decision="human_escalate",
-            summary=f"Regulatory assessed {reg_risk} risk ({reg_conf*100:.0f}% conf), Commercial assessed {com_risk} risk ({com_conf*100:.0f}% conf), and Precedent assessed {prec_risk} risk ({prec_conf*100:.0f}% conf). Escalated as a material conflict."
+            summary=f"{agents_str} Escalated as a material conflict."
         )
+
+    inputs = {
+        "regulatory": regulatory,
+        "commercial": commercial,
+        "precedent": precedent
+    }
+    if data_privacy:
+        inputs["data_privacy"] = data_privacy
 
     append_entry("consensus_decision", {
         "clause_id": clause_id,
-        "inputs": {
-            "regulatory": regulatory,
-            "commercial": commercial,
-            "precedent": precedent
-        },
+        "inputs": inputs,
         "output": result.model_dump()
     })
     return result
